@@ -41,9 +41,9 @@ class CloudAsrService(private val baseUrl: String, private val accessToken: Stri
         .client(
             OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(125, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(30, TimeUnit.SECONDS)
-                .callTimeout(125, TimeUnit.SECONDS)
+                .callTimeout(35, TimeUnit.SECONDS)
                 .build()
         )
         .addConverterFactory(GsonConverterFactory.create())

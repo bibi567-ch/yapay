@@ -67,9 +67,9 @@ class AsistenteVozFacade(context: Context) : AutoCloseable {
                 // correcto. Si la frase ya corresponde a un comando conocido se usa directamente: toda
                 // acción pide confirmación y las ventas nunca se guardan solas.
                 val local = procesar(texto, confianza)
-                if (!modoQuechuaActivo &&
-                    (confianza >= UMBRAL_CONFIANZA || local.intencion != IntentClassifier.Intencion.DESCONOCIDA)
-                ) {
+                // Fuera del modo quechua la respuesta es inmediata y local: el respaldo en la nube está
+                // simulado en producción y esperar su respuesta hacía que el asistente tardara mucho.
+                if (!modoQuechuaActivo) {
                     onResultado(local)
                     return
                 }
