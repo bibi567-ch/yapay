@@ -37,7 +37,10 @@ object ClaveDb {
             val clave = ByteArray(32).also { SecureRandom().nextBytes(it) }
             cipher.init(Cipher.ENCRYPT_MODE, kek)
             val cifrada = cipher.doFinal(clave)
-            prefs.edit().putString("db_key", Base64.encodeToString(cipher.iv + cifrada, Base64.NO_WRAP)).apply()
+            // commit() (síncrono): si el proceso se cierra justo después de crear la base, la clave no se pierde.
+            check(prefs.edit().putString("db_key", Base64.encodeToString(cipher.iv + cifrada, Base64.NO_WRAP)).commit()) {
+                "No se pudo guardar la clave de la base local"
+            }
             return clave
         }
         val datos = Base64.decode(guardada, Base64.NO_WRAP)

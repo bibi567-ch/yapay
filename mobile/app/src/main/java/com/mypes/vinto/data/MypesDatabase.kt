@@ -126,17 +126,40 @@ abstract class MypesDatabase : RoomDatabase() {
             }
         }
 
+        private const val NOMBRE_BD = "mypes-local.db"
+
         fun obtener(context: Context): MypesDatabase =
             instancia ?: synchronized(this) {
                 instancia ?: run {
                     System.loadLibrary("sqlcipher")
+                    val base = construir(context)
+                    val abierta = try {
+                        base.openHelper.writableDatabase
+                        base
+                    } catch (error: Exception) {
+                        // La base quedó cifrada con una clave que ya no existe (por ejemplo, la app se cerró
+                        // antes de guardar la clave). No se puede leer: se recrea vacía para que la app abra.
+                        if (!esClaveInvalida(error)) throw error
+                        android.util.Log.e("MypesDatabase", "Base local ilegible con la clave actual; se recrea.", error)
+                        runCatching { base.close() }
+                        context.applicationContext.deleteDatabase(NOMBRE_BD)
+                        construir(context).also { it.openHelper.writableDatabase }
+                    }
+                    instancia = abierta
+                    abierta
+                }
+            }
 
+        private fun esClaveInvalida(error: Throwable): Boolean =
+            generateSequence(error) { it.cause }.any { it.message?.contains("file is not a database", ignoreCase = true) == true }
+
+        private fun construir(context: Context): MypesDatabase {
                     val factory = SupportOpenHelperFactory(ClaveDb.obtener(context))
 
-                    Room.databaseBuilder(
+                    return Room.databaseBuilder(
                         context.applicationContext,
                         MypesDatabase::class.java,
-                        "mypes-local.db"
+                        NOMBRE_BD
                     )
                         .openHelperFactory(factory)
                         .addMigrations(
@@ -147,8 +170,6 @@ abstract class MypesDatabase : RoomDatabase() {
                             MIGRATION_6_7
                         )
                         .build()
-                        .also { instancia = it }
-                }
-            }
+        }
     }
 }

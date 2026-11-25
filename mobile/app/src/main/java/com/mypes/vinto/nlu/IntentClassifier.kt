@@ -45,6 +45,15 @@ class IntentClassifier {
             contiene(normalizado, "linterna", "flash", "q'anchay") -> Intencion.LINTERNA
             contiene(normalizado, "wifi", "bluetooth", "datos", "ajustes de red", "internet") -> Intencion.AJUSTES_RED
             contiene(normalizado, "guia", "como uso", "ayudame a usar") -> Intencion.GUIA_TELEFONO
+            // Palabras sueltas: el reconocimiento de voz a veces omite artículos o verbos auxiliares.
+            contiene(normalizado, "producto") && contiene(normalizado, "boliviano", "precio", "agrega", "anade", "nuevo") ->
+                Intencion.AGREGAR_PRODUCTO
+            contiene(normalizado, "vender", "vendo", "venta", "vende ", "cobrar") -> Intencion.REGISTRAR_VENTA
+            contiene(normalizado, "consultar", "cuanto hay", "cuantos hay", "cuantas hay", "tengo de") ->
+                Intencion.CONSULTAR_STOCK
+            contiene(normalizado, "texto") -> Intencion.LEER_TEXTO
+            contiene(normalizado, "hora") -> Intencion.CONSULTAR_HORA
+            contiene(normalizado, "whatsapp", "camara", "aplicacion") -> Intencion.ABRIR_APP
             contiene(normalizado, "como", "que es", "iva", "ganancia", "contabilidad", "administracion") ->
                 Intencion.CONSULTA_COGNITIVA
             contiene(normalizado, "ayuda", "que puedo", "comandos") -> Intencion.AYUDA

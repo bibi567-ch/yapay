@@ -4,6 +4,11 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.util.Log
+import com.mypes.vinto.data.MypesDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
 import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
@@ -22,6 +27,40 @@ class AsrEngine(private val context: Context) : Closeable {
     companion object {
         private const val SAMPLE_RATE = 16_000
         private const val MAX_RECORDING_BYTES = SAMPLE_RATE * 2 * 120
+        private const val TAG = "YapayVoz"
+
+        /**
+         * Vocabulario del negocio y del teléfono. Un segundo reconocedor restringido a estas palabras
+         * (más los nombres de productos guardados) acierta mucho más que el modelo abierto en frases
+         * cortas como "quiero vender arroz" o "enciende la linterna".
+         */
+        val VOCABULARIO_BASE: List<String> = (
+            "quiero vender venta vendí vendo registrar cobrar fiado fiar contado cuánto cuántos cuántas hoy ayer " +
+            "inventario hay queda quedan consultar ver tengo agregar añadir producto productos nuevo precio " +
+            "a de del la el los las un una uno dos tres cuatro cinco seis siete ocho nueve diez once doce " +
+            "quince veinte treinta cuarenta cincuenta cien mil medio media " +
+            "kilo kilos litro litros unidad unidades bolsa bolsas botella botellas paquete bolivianos peso pesos " +
+            "arroz azúcar aceite fideo fideos pan leche harina papa papas huevo huevos sal café gaseosa refresco " +
+            "llama llamar mamá papá mensaje envía enviar manda escribe whatsapp " +
+            "enciende apaga prende linterna luz alarma pon las y hora qué es lee leer texto " +
+            "abre abrir aplicación cámara wifi datos red internet ajustes ayuda guía cómo uso teléfono " +
+            "hola buenos días gracias sí no cancelar confirmar"
+            ).split(" ").filter(String::isNotBlank)
+
+        internal fun elegirTexto(textoAbierto: String, textoDominio: String?): String {
+            val dominio = textoDominio.orEmpty().replace("[unk]", " ").replace(Regex("\\s+"), " ").trim()
+            if (dominio.isEmpty()) return textoAbierto
+            val clasificador = IntentClassifier()
+            val intencionDominio = clasificador.clasificar(dominio)
+            // Para llamadas y mensajes se conserva el texto abierto: los nombres de contactos no están en el vocabulario.
+            return when {
+                intencionDominio == IntentClassifier.Intencion.DESCONOCIDA -> textoAbierto
+                intencionDominio == IntentClassifier.Intencion.LLAMAR_CONTACTO ||
+                    intencionDominio == IntentClassifier.Intencion.ENVIAR_MENSAJE -> textoAbierto.ifBlank { dominio }
+                clasificador.clasificar(textoAbierto) == intencionDominio && textoAbierto.length > dominio.length -> textoAbierto
+                else -> dominio
+            }
+        }
 
         fun extraerConfianza(json: String): Float = runCatching {
             val root = JSONObject(json)
@@ -33,6 +72,7 @@ class AsrEngine(private val context: Context) : Closeable {
     }
 
     private var model: Model? = null
+    @Volatile private var dominio: Recognizer? = null
     @Volatile private var escuchando = false
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var listenerThread: Thread? = null
@@ -79,6 +119,10 @@ class AsrEngine(private val context: Context) : Closeable {
             val recognizer = Recognizer(modelo, SAMPLE_RATE.toFloat())
             recognizer.setWords(true)
             nuevoReconocedor = recognizer
+            val reconocedorDominio = runCatching {
+                Recognizer(modelo, SAMPLE_RATE.toFloat(), gramaticaDominio())
+            }.onFailure { Log.w(TAG, "No se pudo crear el reconocedor de vocabulario", it) }.getOrNull()
+            dominio = reconocedorDominio
             recorder.startRecording()
             audioRecord = recorder
             escuchando = true
@@ -148,6 +192,7 @@ class AsrEngine(private val context: Context) : Closeable {
                     break
                 }
                 audioUtterance.write(buffer, 0, read)
+                dominio?.acceptWaveForm(buffer, read)
                 val jsonFinal = if (recognizer.acceptWaveForm(buffer, read)) recognizer.result else null
                 if (jsonFinal != null) {
                     extraerTexto(jsonFinal)?.let(segmentosFinales::add)
@@ -165,7 +210,10 @@ class AsrEngine(private val context: Context) : Closeable {
                 extraerConfianza(finalJson)
                     .takeIf { it > 0f }
                     ?.let(confianzas::add)
-                val textoFinal = segmentosFinales.joinToString(" ").trim()
+                val textoAbierto = segmentosFinales.joinToString(" ").trim()
+                val textoDominio = dominio?.let { extraerTexto(it.finalResult) }
+                val textoFinal = elegirTexto(textoAbierto, textoDominio).trim()
+                Log.d(TAG, "abierto='$textoAbierto' vocabulario='${textoDominio.orEmpty()}' elegido='$textoFinal'")
                 if (textoFinal.isBlank()) {
                     resultado.onError("No se detectó voz. Mantén presionado para hablar y suelta para enviar.")
                 } else {
@@ -182,6 +230,8 @@ class AsrEngine(private val context: Context) : Closeable {
             recorder.release()
             audioRecord = null
             recognizer.close()
+            dominio?.close()
+            dominio = null
             listenerThread = null
         }
     }
@@ -209,6 +259,16 @@ class AsrEngine(private val context: Context) : Closeable {
             resultado.optString("text").ifBlank { resultado.optString("partial") }.trim()
         }.takeIf(String::isNotBlank)
     }.getOrNull()
+
+    private fun gramaticaDominio(): String {
+        val productos = runCatching {
+            runBlocking(Dispatchers.IO) { MypesDatabase.obtener(context).productoDao().listarTodos() }
+        }.getOrDefault(emptyList())
+        val palabras = (VOCABULARIO_BASE + productos.flatMap { it.nombre.lowercase().split(Regex("[^\\p{L}]+")) })
+            .filter { it.length > 1 || it == "a" || it == "y" }
+            .distinct()
+        return JSONArray(palabras + "[unk]").toString()
+    }
 
     private fun copiarModeloDesdeAssets(): String {
         val nombreModelo = "vosk-model-small-es-0.42"
