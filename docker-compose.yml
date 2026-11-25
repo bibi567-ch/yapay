@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mypes-vinto-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mypes_vinto_dev
+      POSTGRES_USER: mypes_local
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the root .env file}
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mypes_local -d mypes_vinto_dev"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgres://mypes_local:${POSTGRES_PASSWORD}@postgres:5432/mypes_vinto_dev
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+      ASR_PROVIDER: ${ASR_PROVIDER:-simulated}
+      GOOGLE_ASR_API_KEY: ${GOOGLE_ASR_API_KEY:-}
+      GOOGLE_ASR_LANGUAGE: ${GOOGLE_ASR_LANGUAGE:-es-ES}
+      OPENAI_ASR_API_KEY: ${OPENAI_ASR_API_KEY:-}
+      OPENAI_ASR_BASE_URL: ${OPENAI_ASR_BASE_URL:-https://api.openai.com/v1}
+      ANDROID_UPDATE_VERSION_CODE: ${ANDROID_UPDATE_VERSION_CODE:-0}
+      ANDROID_UPDATE_VERSION_NAME: ${ANDROID_UPDATE_VERSION_NAME:-}
+      ANDROID_UPDATE_APK_PATH: ${ANDROID_UPDATE_APK_PATH:-/updates/app-debug.apk}
+      ANDROID_UPDATE_BASE_URL: ${ANDROID_UPDATE_BASE_URL:-http://10.0.2.2:3000}
+    ports:
+      - "${API_BIND_ADDRESS:-127.0.0.1}:3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./mobile/app/build/outputs/apk/debug:/updates:ro
+
+volumes:
+  postgres_data:

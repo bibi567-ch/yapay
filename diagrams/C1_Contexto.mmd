@@ -1,0 +1,12 @@
+flowchart LR
+    merchant[Comerciante de MYPE]
+    app[App Android offline-first<br/>Kotlin + Jetpack Compose]
+    api[API objetivo<br/>Node.js + TypeScript + Express]
+    pg[(PostgreSQL remoto<br/>fuente comercial autoritativa)]
+    edge[Vosk + NLU local<br/>propuesta por validar]
+    merchant -->|texto, toque o voz| app
+    app -. procesamiento offline .-> edge
+    app -->|sincroniza cuando vuelve la red| api
+    api --> pg
+
+    %% Propuesta de arquitectura del equipo, pendiente de aprobación docente.

@@ -1,0 +1,86 @@
+name: Backend
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: mypes_vinto_test
+          POSTGRES_USER: mypes_test
+          POSTGRES_PASSWORD: test_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mypes_test -d mypes_vinto_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgres://mypes_test:test_only_password@127.0.0.1:5432/mypes_vinto_test
+      JWT_SECRET: integration-test-secret-that-is-at-least-32-bytes
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - id: install
+        run: npm ci
+      - id: migrate
+        run: npm run db:migrate
+      - id: build
+        run: npm run build
+      - id: typecheck
+        run: npm run typecheck:test
+      - id: unit
+        run: npm test
+      - id: integration
+        run: npm run test:integration
+      - name: Publish CI report
+        if: always()
+        env:
+          INSTALL_RESULT: ${{ steps.install.outcome }}
+          MIGRATE_RESULT: ${{ steps.migrate.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          TYPECHECK_RESULT: ${{ steps.typecheck.outcome }}
+          UNIT_RESULT: ${{ steps.unit.outcome }}
+          INTEGRATION_RESULT: ${{ steps.integration.outcome }}
+          JOB_RESULT: ${{ job.status }}
+          COMMIT_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "# Backend CI report"
+            echo
+            echo "- Date (UTC): $(date -u '+%Y-%m-%d %H:%M:%S')"
+            echo "- Commit: \`$COMMIT_SHA\`"
+            echo "- Event: \`$EVENT_NAME\`"
+            echo "- Workflow run: $RUN_URL"
+            echo
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| Install dependencies | $INSTALL_RESULT |"
+            echo "| PostgreSQL migrations | $MIGRATE_RESULT |"
+            echo "| TypeScript build | $BUILD_RESULT |"
+            echo "| Test typecheck | $TYPECHECK_RESULT |"
+            echo "| Unit tests | $UNIT_RESULT |"
+            echo "| Integration tests | $INTEGRATION_RESULT |"
+            echo "| Overall job | $JOB_RESULT |"
+            echo
+            echo "Results are taken from this workflow run; see the linked run and step logs for details."
+          } >> "$GITHUB_STEP_SUMMARY"

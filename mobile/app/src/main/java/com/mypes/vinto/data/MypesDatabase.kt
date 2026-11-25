@@ -1,0 +1,154 @@
+package com.mypes.vinto.data
+
+import android.content.Context
+import androidx.room.Database
+import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
+
+@Database(
+    entities = [
+        Producto::class,
+        Usuario::class,
+        Venta::class,
+        DetalleVenta::class,
+        MovimientoCaja::class,
+        OutboxEntry::class,
+        VoiceLog::class
+    ],
+    version = 7,
+    exportSchema = true
+)
+abstract class MypesDatabase : RoomDatabase() {
+    abstract fun productoDao(): ProductoDao
+    abstract fun usuarioDao(): UsuarioDao
+    abstract fun ventaDao(): VentaDao
+    abstract fun outboxDao(): OutboxDao
+    abstract fun voiceLogDao(): VoiceLogDao
+
+    companion object {
+        @Volatile
+        private var instancia: MypesDatabase? = null
+
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS ventas (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        total REAL NOT NULL,
+                        formaPago TEXT NOT NULL,
+                        clienteFiado TEXT,
+                        creadoEn INTEGER NOT NULL
+                    )"""
+                )
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS detalle_ventas (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        ventaId TEXT NOT NULL,
+                        productoId TEXT NOT NULL,
+                        cantidad REAL NOT NULL,
+                        precioUnitario REAL NOT NULL,
+                        FOREIGN KEY (ventaId) REFERENCES ventas(id) ON DELETE CASCADE,
+                        FOREIGN KEY (productoId) REFERENCES productos(id) ON DELETE RESTRICT
+                    )"""
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_detalle_ventas_ventaId ON detalle_ventas(ventaId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_detalle_ventas_productoId ON detalle_ventas(productoId)")
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS movimientos_caja (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        tipo TEXT NOT NULL,
+                        monto REAL NOT NULL,
+                        concepto TEXT NOT NULL,
+                        ventaId TEXT,
+                        creadoEn INTEGER NOT NULL
+                    )"""
+                )
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS outbox (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        tipo TEXT NOT NULL,
+                        operationId TEXT NOT NULL,
+                        schemaVersion INTEGER NOT NULL,
+                        payloadJson TEXT NOT NULL,
+                        estado TEXT NOT NULL,
+                        intentos INTEGER NOT NULL,
+                        creadoEn INTEGER NOT NULL
+                    )"""
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_outbox_operationId ON outbox(operationId)")
+            }
+        }
+
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN carnet TEXT")
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN celular TEXT")
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN direccion TEXT")
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN email TEXT")
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN nombreNegocio TEXT")
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN rubro TEXT")
+            }
+        }
+
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE ventas ADD COLUMN pagado INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_4_6 = object : Migration(4, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN nombres TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN apellidos TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN expedido TEXT")
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN fechaNacimiento TEXT")
+                db.execSQL("ALTER TABLE usuarios ADD COLUMN lugarNacimiento TEXT")
+            }
+        }
+
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS voice_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        eventId TEXT NOT NULL,
+                        textoOriginal TEXT NOT NULL,
+                        textoCorregido TEXT NOT NULL,
+                        intencion TEXT NOT NULL,
+                        fecha INTEGER NOT NULL,
+                        consentToUpload INTEGER NOT NULL DEFAULT 0
+                    )"""
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_voice_logs_eventId ON voice_logs(eventId)")
+            }
+        }
+
+        fun obtener(context: Context): MypesDatabase =
+            instancia ?: synchronized(this) {
+                instancia ?: run {
+                    System.loadLibrary("sqlcipher")
+
+                    val factory = SupportOpenHelperFactory(ClaveDb.obtener(context))
+
+                    Room.databaseBuilder(
+                        context.applicationContext,
+                        MypesDatabase::class.java,
+                        "mypes-local.db"
+                    )
+                        .openHelperFactory(factory)
+                        .addMigrations(
+                            MIGRATION_1_2,
+                            MIGRATION_2_3,
+                            MIGRATION_3_4,
+                            MIGRATION_4_6,
+                            MIGRATION_6_7
+                        )
+                        .build()
+                        .also { instancia = it }
+                }
+            }
+    }
+}

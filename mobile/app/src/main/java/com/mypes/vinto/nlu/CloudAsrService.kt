@@ -1,0 +1,83 @@
+package com.mypes.vinto.nlu
+
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.RequestBody
+import retrofit2.http.Multipart
+import retrofit2.http.POST
+import retrofit2.http.Part
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.Header
+import java.util.concurrent.TimeUnit
+
+data class CloudAsrResponse(
+    val texto: String,
+    val simulada: Boolean = false,
+    val mensaje: String? = null,
+    val clasificada: Boolean = false,
+    val intencion: String? = null,
+    val confianzaIntencion: Float? = null
+)
+
+internal fun CloudAsrResponse.textoUtilizable(): String? =
+    texto.takeUnless { simulada }?.trim()?.takeIf(String::isNotEmpty)
+
+interface CloudAsrApi {
+    @Multipart
+    @POST("api/v1/asr/transcribe")
+    suspend fun transcribe(
+        @Header("Authorization") authorization: String,
+        @Part audio: MultipartBody.Part
+    ): CloudAsrResponse
+}
+
+class CloudAsrService(private val baseUrl: String, private val accessToken: String) {
+    private val api = Retrofit.Builder()
+        .baseUrl(if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
+        .client(
+            OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(125, TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
+                .callTimeout(125, TimeUnit.SECONDS)
+                .build()
+        )
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+        .create(CloudAsrApi::class.java)
+
+    suspend fun transcribe(audio: RequestBody, filename: String = "voice.wav"): CloudAsrResponse =
+        api.transcribe(
+            "Bearer $accessToken",
+            MultipartBody.Part.createFormData("audio", filename, audio)
+        )
+
+    suspend fun transcribeIfNeeded(
+        context: Context,
+        audio: RequestBody,
+        voskConfidence: Float,
+        filename: String = "voice.wav",
+        forceCloud: Boolean = false
+    ): CloudAsrResponse? {
+        val connectivityManager =
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivityManager.activeNetwork ?: return null
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return null
+        val online = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        if (!CloudAsrFallback.shouldUseCloud(online, voskConfidence, forceCloud)) return null
+        return transcribe(audio, filename)
+    }
+}
+
+object CloudAsrFallback {
+    fun shouldFallback(isOnline: Boolean, confidence: Float): Boolean =
+        isOnline && confidence.isFinite() && confidence < 0.70f
+
+    fun shouldUseCloud(isOnline: Boolean, confidence: Float, forceCloud: Boolean): Boolean =
+        isOnline && (forceCloud || shouldFallback(true, confidence))
+}
