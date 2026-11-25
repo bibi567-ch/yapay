@@ -15,6 +15,9 @@ import retrofit2.HttpException
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 
+/** Confianza mínima de Vosk para aceptar un texto que no coincide con ningún comando conocido. */
+const val UMBRAL_CONFIANZA = 0.70f
+
 class AsistenteVozFacade(context: Context) : AutoCloseable {
     private val asr = AsrEngine(context)
     private val clasificador = IntentClassifier()
@@ -60,8 +63,14 @@ class AsistenteVozFacade(context: Context) : AutoCloseable {
             override fun onTextoParcial(texto: String) = onParcial(texto)
             override fun onTextoFinal(texto: String, confianza: Float, audioPcm: ByteArray) {
                 val modoQuechuaActivo = modoQuechua()
-                if (confianza >= 0.70f && !modoQuechuaActivo) {
-                    onResultado(procesar(texto, confianza))
+                // El modelo español sin gramática cerrada entrega confianzas bajas aunque el texto sea
+                // correcto. Si la frase ya corresponde a un comando conocido se usa directamente: toda
+                // acción pide confirmación y las ventas nunca se guardan solas.
+                val local = procesar(texto, confianza)
+                if (!modoQuechuaActivo &&
+                    (confianza >= UMBRAL_CONFIANZA || local.intencion != IntentClassifier.Intencion.DESCONOCIDA)
+                ) {
+                    onResultado(local)
                     return
                 }
 

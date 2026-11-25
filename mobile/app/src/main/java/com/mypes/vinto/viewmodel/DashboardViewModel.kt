@@ -283,10 +283,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             responder("El modo quechua no produjo una transcripción cloud. Revisa la conexión y la configuración del servicio; no ejecuté ninguna acción.")
             return
         }
-        if (resultado.confianzaVosk < 0.70f && !resultado.transcripcionNube) {
+        if (resultado.confianzaVosk < 0.70f && !resultado.transcripcionNube &&
+            resultado.intencion == IntentClassifier.Intencion.DESCONOCIDA
+        ) {
             agregarMensaje(
-                "La confianza de la transcripción local es baja. No ejecutaré ninguna acción; " +
-                    "puedes corregir el texto y volver a intentarlo.",
+                "No entendí bien lo que dijiste. No ejecuté ninguna acción; " +
+                    "habla cerca del micrófono o corrige el texto y vuelve a intentarlo.",
                 esUsuario = false
             )
             return

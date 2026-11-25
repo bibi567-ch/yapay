@@ -38,8 +38,9 @@ internal fun errorTranscripcionParaChat(resultado: AsistenteVozFacade.Resultado)
             "No te escuché bien. Mantén presionado el micrófono, habla y suelta para enviar."
         resultado.requiereTranscripcionNube && !resultado.transcripcionNube ->
             "El modo quechua no produjo una transcripción cloud. Revisa la conexión y vuelve a intentarlo; no ejecuté ninguna acción."
-        resultado.confianzaVosk < 0.70f && !resultado.transcripcionNube ->
-            "La confianza de la transcripción es baja. No ejecutaré ninguna acción; mantén presionado para repetir."
+        resultado.confianzaVosk < 0.70f && !resultado.transcripcionNube &&
+            resultado.intencion == IntentClassifier.Intencion.DESCONOCIDA ->
+            "No entendí bien lo que dijiste. No ejecuté ninguna acción; mantén presionado y repite más cerca del micrófono."
         resultado.transcripcionNube && resultado.clasificacionRemota &&
             resultado.intencionRemota == null ->
             "Transcribí el audio, pero no reconocí una intención con suficiente confianza. No ejecuté ninguna acción."

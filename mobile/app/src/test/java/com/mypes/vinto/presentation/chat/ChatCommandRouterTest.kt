@@ -123,15 +123,34 @@ class ChatCommandRouterTest {
         assertTrue(mostrarTranscripcionEnChat(result))
     }
 
+    @Test
+    fun `confianza baja con comando reconocido no bloquea la accion`() {
+        val result = resultadoVoz(
+            texto = "llama a juan",
+            confianza = 0.45f,
+            intencion = IntentClassifier.Intencion.LLAMAR_CONTACTO
+        )
+
+        assertNull(errorTranscripcionParaChat(result))
+    }
+
+    @Test
+    fun `confianza baja sin comando reconocido pide repetir`() {
+        val result = resultadoVoz(texto = "mmm eh", confianza = 0.45f)
+
+        assertTrue(errorTranscripcionParaChat(result)!!.startsWith("No entendí bien"))
+    }
+
     private fun resultadoVoz(
         texto: String = "Quiero vender papa",
         confianza: Float = 0.9f,
         intencionRemota: IntentClassifier.Intencion? = null,
         transcripcionNube: Boolean = false,
         clasificacionRemota: Boolean = false,
-        requiereNube: Boolean = false
+        requiereNube: Boolean = false,
+        intencion: IntentClassifier.Intencion = IntentClassifier.Intencion.DESCONOCIDA
     ) = AsistenteVozFacade.Resultado(
-        intencion = IntentClassifier.Intencion.DESCONOCIDA,
+        intencion = intencion,
         entidades = extractor.extraer(texto),
         textoOriginal = texto,
         confianzaVosk = confianza,
